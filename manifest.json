@@ -1,0 +1,9 @@
+{
+    "name": "SMTSaveAPI",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/IkaOverride/SMTSaveAPI",
+    "description": "Lightweight library to save and load custom variables in the game's save file",
+    "dependencies": [
+      "BepInEx-BepInExPack-5.4.2100"
+    ]
+  }
