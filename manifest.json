@@ -1,6 +1,6 @@
 {
     "name": "SMTSaveAPI",
-    "version_number": "1.0.0",
+    "version_number": "1.1.0",
     "website_url": "https://github.com/IkaOverride/SMTSaveAPI",
     "description": "Lightweight library to save and load custom variables in the game's save file",
     "dependencies": [
