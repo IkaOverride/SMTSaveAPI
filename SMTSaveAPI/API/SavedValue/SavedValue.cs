@@ -17,12 +17,19 @@ namespace SMTSaveAPI.API.SavedValue
         /// <param name="persistent">Indicates whether the value should persist even if it is no longer registered.</param>
         public SavedValue(string key, T defaultValue = default, bool persistent = false)
         {
+            DefaultValue = defaultValue;
             Value = defaultValue;
             Persistent = persistent;
             if (CustomSaveManager.SavedValues.ContainsKey(key))
                 throw new ArgumentException("A saved value with the same key already exists: " + key);
             CustomSaveManager.SavedValues.Add(key, this);
         }
+
+        /// <summary>
+        /// Gets the default value assigned when no saved data exists.
+        /// This value is used as a fallback if no previous save data is found.
+        /// </summary>
+        public object DefaultValue { get; }
 
         /// <summary>
         /// Gets or sets the stored value.
@@ -36,6 +43,15 @@ namespace SMTSaveAPI.API.SavedValue
         {
             get => Value;
             set => Value = (T) value;
+        }
+
+        /// <summary>
+        /// Gets the type of the stored value.
+        /// This indicates the underlying data type used for serialization and retrieval.
+        /// </summary>
+        public Type ValueType
+        {
+            get => typeof(T);
         }
 
         /// <summary>

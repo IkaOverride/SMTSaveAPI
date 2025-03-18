@@ -4,6 +4,7 @@ using SMTSaveAPI.API.Events;
 using SMTSaveAPI.API.SavedValue;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -51,6 +52,8 @@ namespace SMTSaveAPI.API.Managers
         {
             SaveEventHandler.OnSaving();
 
+            Stopwatch sw = Stopwatch.StartNew();
+
             BaseSaveHash.Value = GetBaseSaveMD5(SavePathManager.BaseSaveFilePath);
 
             Dictionary<string, JObject> json = File.Exists(SavePathManager.CustomSaveFilePath)
@@ -59,20 +62,22 @@ namespace SMTSaveAPI.API.Managers
 
             foreach (KeyValuePair<string, ISavedValue> kvp in SavedValues)
             {
-                if (kvp.Value.Value == default)
-                    json.Remove(kvp.Key);
-
-                else
+                if (kvp.Value.Value == null)
                 {
-                    json[kvp.Key] = new()
-                    {
-                        ["persistent"] = kvp.Value.Persistent,
-                        ["value"] = JToken.FromObject(kvp.Value.Value)
-                    };
+                    json.Remove(kvp.Key);
+                    continue;
                 }
+
+                json[kvp.Key] = new()
+                {
+                    ["persistent"] = kvp.Value.Persistent,
+                    ["value"] = JToken.FromObject(kvp.Value.Value)
+                };
             }
 
             File.WriteAllText(SavePathManager.CustomSaveFilePath, XORCipher(JsonConvert.SerializeObject(json)));
+
+            ModEntry.Logger.LogInfo($"Saved custom values in {sw.Elapsed.TotalMilliseconds:0.00}ms");
         }
 
         /// <summary>
@@ -80,31 +85,39 @@ namespace SMTSaveAPI.API.Managers
         /// </summary>
         internal static void LoadValues()
         {
-            if (File.Exists(SavePathManager.CustomSaveFilePath))
+            Stopwatch sw = Stopwatch.StartNew();
+
+            if (!File.Exists(SavePathManager.CustomSaveFilePath))
             {
-                Dictionary<string, JObject> deserializedValues = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(XORCipher(File.ReadAllText(SavePathManager.CustomSaveFilePath)));
-                
-                if (deserializedValues.TryGetValue("SMTSaveAPI.BaseSaveHash", out JObject obj) && obj["value"].ToString() != GetBaseSaveMD5(SavePathManager.BaseSaveFilePath))
-                {
-                    File.Delete(SavePathManager.CustomSaveFilePath);
-                    return;
-                }
-
-                foreach (KeyValuePair<string, JObject> entry in deserializedValues.ToList())
-                {
-                    if (!SavedValues.ContainsKey(entry.Key))
-                    {
-                        if (!entry.Value.Value<bool>("persistent"))
-                            deserializedValues.Remove(entry.Key);
-
-                        continue;
-                    }
-
-                    SavedValues[entry.Key].Value = entry.Value["value"].ToObject(SavedValues[entry.Key].Value.GetType());
-                }
-
-                File.WriteAllText(SavePathManager.CustomSaveFilePath, XORCipher(JsonConvert.SerializeObject(deserializedValues)));
+                SaveEventHandler.OnLoaded();
+                return;
             }
+
+            Dictionary<string, JObject> deserializedValues = JsonConvert.DeserializeObject<Dictionary<string, JObject>>(XORCipher(File.ReadAllText(SavePathManager.CustomSaveFilePath)));
+
+            if (!deserializedValues.TryGetValue("SMTSaveAPI.BaseSaveHash", out JObject obj) || obj["value"]?.Value<string>() != GetBaseSaveMD5(SavePathManager.BaseSaveFilePath))
+            {
+                File.Delete(SavePathManager.CustomSaveFilePath);
+                SaveEventHandler.OnLoaded();
+                return;
+            }
+
+            foreach (KeyValuePair<string, JObject> entry in deserializedValues.ToList())
+            {
+                if (!SavedValues.TryGetValue(entry.Key, out ISavedValue savedValue))
+                {
+                    if (!entry.Value.Value<bool>("persistent"))
+                        deserializedValues.Remove(entry.Key);
+
+                    continue;
+                }
+
+                savedValue.Value = entry.Value["value"].ToObject(savedValue.ValueType);
+            }
+
+            File.WriteAllText(SavePathManager.CustomSaveFilePath, XORCipher(JsonConvert.SerializeObject(deserializedValues)));
+
+            ModEntry.Logger.LogInfo($"Loaded custom values in {sw.Elapsed.TotalMilliseconds:0.00}ms");
 
             SaveEventHandler.OnLoaded();
         }

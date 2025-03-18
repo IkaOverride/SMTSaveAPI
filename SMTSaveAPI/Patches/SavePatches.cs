@@ -4,12 +4,18 @@ using SMTSaveAPI.API.Managers;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection.Emit;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace SMTSaveAPI.Patches
 {
     [HarmonyPatch]
     internal static class SavePatches
     {
+        private static readonly SemaphoreSlim SaveLock = new(1, 1);
+
+        private static readonly SynchronizationContext unityContext = SynchronizationContext.Current;
+
         [HarmonyPatch(typeof(NetworkSpawner), nameof(NetworkSpawner.SavePropsCoroutine), MethodType.Enumerator), HarmonyTranspiler]
         private static IEnumerable<CodeInstruction> OnSaving(IEnumerable<CodeInstruction> instructions)
         {
@@ -17,21 +23,47 @@ namespace SMTSaveAPI.Patches
                 .Start()
 
                 .MatchForward(false, [
+                    new CodeMatch(OpCodes.Ldsfld, AccessTools.Field(typeof(GameCanvas), nameof(GameCanvas.Instance))),
+                    new CodeMatch(),
                     new CodeMatch(OpCodes.Ldstr, "SavingContainer"),
                     new CodeMatch(),
                     new CodeMatch(),
                     new CodeMatch(OpCodes.Ldc_I4_0)
                 ])
-                .Advance(-2)
+                .RemoveInstructions(10)
                 .Insert([
-                    new(OpCodes.Call, AccessTools.Method(typeof(CustomSaveManager), nameof(CustomSaveManager.SaveValues)))
+                    new(OpCodes.Ldloc_1),
+                    new(OpCodes.Call, AccessTools.Method(typeof(SavePatches), nameof(RunSaveTask)))
                 ])
 
                 .Instructions();
         }
-        [HarmonyPatch(typeof(NetworkSpawner), nameof(NetworkSpawner.OnStartServer)), HarmonyPostfix]
+        
+        private static void RunSaveTask(NetworkSpawner __instance)
+        {
+            Task.Run(async () => {
+                await SaveLock.WaitAsync();
+
+                try
+                {
+                    CustomSaveManager.SaveValues();
+                }
+                finally
+                {
+                    SaveLock.Release();
+                }
+
+                unityContext.Post(_ =>
+                {
+                    GameCanvas.Instance.transform.Find("SavingContainer").gameObject.SetActive(false);
+                    __instance.isSaving = false;
+                }, null);
+            });
+        }
+
+        [HarmonyPatch(typeof(NetworkSpawner), nameof(NetworkSpawner.OnStartServer)), HarmonyPrefix]
         private static void OnLoading()
-            => CustomSaveManager.LoadValues();
+            => Task.Run(CustomSaveManager.LoadValues);
 
         [HarmonyPatch(typeof(GameData), nameof(GameData.DoDaySaveBackup)), HarmonyPostfix]
         private static void OnSavingBackup()
